@@ -1,0 +1,476 @@
+model{
+
+###################################################################
+############### endo prevalence model #############################
+###################################################################
+
+    ## Priors
+    for(i in 1:N.trt){
+    for(j in 1:(N.years-1)){
+    ## Priors for regression coefficients for change in endo prevalence 
+    beta0.mean[i,j]~dnorm(0,0.001)   
+    beta1.mean[i,j]~dnorm(0,0.001)  
+    }
+    }
+
+    ## prior for beta binomial param
+    q ~ dgamma(0.001,0.001)
+
+    ## random intercepts for plots
+    sigma0.plot~dunif(0,1000)
+    sigma1.plot~dunif(0,1000)
+    tau.sigma0.plot<-1/(sigma0.plot*sigma0.plot)
+    tau.sigma1.plot<-1/(sigma1.plot*sigma1.plot)
+
+    for(i in 1:N.plots){
+      for(j in 1:(N.years-1)){
+    ran.beta0.plot[i,j]~dnorm(0,tau.sigma0.plot)
+    ran.beta1.plot[i,j]~dnorm(0,tau.sigma1.plot)
+      }
+    }
+
+## Equation 2 -- Likelihood - plot-level estimation
+    ## create a matrix of endo prevalence by plot/year
+    for(i in 1:N.plots){
+
+      #initial prevalence in 2014
+      prev[i,1] ~ dbeta(2,2)
+
+      # 2014/15 transition
+      logit(prev[i,2]) <- beta0.mean[water[i],1] + ran.beta0.plot[plot[i],1] +  
+                          (beta1.mean[water[i],1] + ran.beta1.plot[plot[i],1]) *
+                          prev[i,1]
+
+      # 2015/16 transition
+      logit(prev[i,3]) <- beta0.mean[water[i],2] + ran.beta0.plot[plot[i],2] +  
+                          (beta1.mean[water[i],2] + ran.beta1.plot[plot[i],2]) *
+                          prev[i,2]
+    }
+
+
+## Equation 1 --  Likelihood - subplot-level estimation
+    for(i in 1:N.obs){
+    y.pos[i]~dbetabin(prev[plot[i],year[i]]*q, (1-prev[plot[i],year[i]])*q, N.samples[i])
+  }
+
+
+######################################################################
+################ vital rate sub-models ###############################
+######################################################################
+
+  ## priors for vital rates
+  for(i in 1:N.endo){
+  for(j in 1:N.water){
+  for(k in 1:N.year){
+    mu_surv[i,j,k] ~ dnorm(0, 0.001) ## survival 
+    mu_flow[i,j,k] ~ dnorm(0, 0.001) ## flowering
+    mu.seed[i,j,k] ~ dnorm(0, 0.001) ## seed mass
+    mu.infs[i,j,k] ~ dnorm(0, 0.001) ## infs produced
+            } # year    
+      }   # water
+    }     # endo
+
+  for(j in 1:N.water){
+  for(k in 1:N.year){
+    mu_vtrans[j,k] ~ dnorm(0, 0.001)
+    }    
+    }
+
+  for(j in 1:N.water){
+  for(k in 1:N.years){ ## N years -- 3
+    mu_rec[j,k] ~ dnorm(0, 0.001) ## recruitment
+      } # year
+    }   # water
+      
+    sigma.surv ~ dunif(0,1000) ## survival
+    tau.sigma.surv <-1/(sigma.surv*sigma.surv)
+        
+    sigma.flow ~ dunif(0,1000) ## flowering
+    tau.sigma.flow <-1/(sigma.flow*sigma.flow)
+
+    sigma.res ~ dunif(0, 1000) ## residual variance of the normal for seed mass
+    tau.res.seed <- 1/(sigma.res * sigma.res)
+
+    sigma.infs.overdisp ~ dunif(0, 1000) ## overdispersion variance, allows the Poisson to approximate a negative binomal
+    tau.infs.overdisp <- 1/(sigma.infs.overdisp * sigma.infs.overdisp)
+
+    sigma.plot ~ dunif(0, 1000) ## seed mass
+    tau.plot<- 1/(sigma.plot * sigma.plot)
+
+    sigma.plot.infs ~ dunif(0, 1000) ## infs produced
+    tau.plot.infs <- 1/(sigma.plot.infs * sigma.plot.infs)
+
+    r ~ dunif(0,50) ## prior for overdispersion parameter in infs produced
+
+    beta0_seed_linreg ~ dnorm(0, 0.001) ## intercept for seed mass conversion
+    slope_lin_reg ~ dnorm(0, 0.001) ## slope for seed mass conversion
+
+    sigma.count ~ dunif(0,1000) ## seed counts
+    tau.sigma.count<- 1/(sigma.count *sigma.count) 
+
+    sigma.vt ~ dunif(0,1000) ## vertical transmission
+    tau.sigma.vt <-1/(sigma.vt*sigma.vt)
+
+    w ~ dgamma(0.001, 0.001) ## prior for overdispersion parameter in betabinomial model for vertical transmission
+
+    sigma.rec ~ dunif(0, 1000) ## recruitment
+    tau.sigma.rec <- 1/(sigma.rec * sigma.rec)
+
+    s ~ dunif(0,50) ## prior for overdispersion parameter in negative binomial model for recruitment
+
+    for(i in 1:N.year){   
+    for(j in 1:N.plot){ 
+        eps.surv[i,j] ~ dnorm(0,tau.sigma.surv) ## survival
+        eps.flow[i,j] ~ dnorm(0, tau.sigma.flow) ## flowering
+        eps.seed[i,j] ~ dnorm(0,tau.plot)  ## seed mass
+        eps.infs[i,j] ~ dnorm(0,tau.plot.infs) ## infs produced
+        eps.vt[i,j] ~ dnorm(0, tau.sigma.vt) ## vertical transmission
+        
+    } # plot
+  }   # year
+
+  for(i in 1:N.years){
+  for(j in 1:N.plot){
+      eps.rec[i,j] ~ dnorm(0, tau.sigma.rec) ## recruitment
+    } # plot
+  }   # year
+    
+## Equations S1 and S2 -- likelihood estimation for plants of known endo status
+    for(i in 1:N.obs.surv.known){
+        logit(surv.p[i]) <- mu_surv[endo.k[i], water.k[i], year.k[i]] + eps.surv[year.k[i],plot.k[i]] 
+        survival.k[i] ~ dbern(surv.p[i])
+      }
+        
+## Equations S3- S6 -- likelihood estimation for plants of Unknown endophyte status
+    ## limited to plants that died before we knew their status
+    ## estimate from the plot prev using the weighted mean approach
+
+      ## S5 and S6 -- adjust population prevalence by known endo status for survival at the "plot-level" -- pooled subplots
+      for(i in 1:N.plots.known.endo.surv){
+        link_year_surv_adj[i] <- ifelse(year.adj.surv[i] == 1, 2, 3)
+        expected_ep[i] ~ dbinom(prev[plot.surv.adj[i], link_year_surv_adj[i]], total.demo.plants.3.sbplts[i])
+        diff_ep[i] <- expected_ep[i] - known_ep[i]
+        prev_adj[i] <- ifelse(diff_ep[i] < 0, 0, ifelse(diff_ep[i] > total_unknown_surv[i], 1, diff_ep[i] / total_unknown_surv[i]))
+      }
+
+      ## S3 and S4 -- adjust the plot prev to take into account the endo status that we already know
+      for(i in 1:N.obs.surv.unknown){
+          logit(mu_surv_unk[i])<- weighted.mean.surv[i] + eps.surv[year.unk.surv[i], plot.unk.surv[i]]
+          weighted.mean.surv[i] <- mu_surv[2, water.unk.surv[i], year.unk.surv[i]] * prev_adj[plot.unk.surv[i]] +
+                                   mu_surv[1, water.unk.surv[i], year.unk.surv[i]] * (1-prev_adj[plot.unk.surv[i]]) 
+          alive.unk.t1[i] ~ dbinom(mu_surv_unk[i], alive.unk.t[i])                         
+        }
+
+
+## Equations S7-S8 -- Likelihood infs
+    for(i in 1:N.obs.infs){
+    y.infs[i] ~ dnegbin(p.infs[i], r)T(1,) ## zero-truncated negative binomial
+    p.infs[i] <- r/(r + infs.lambda[i])
+    log(infs.lambda[i]) <- mu.infs[endo.infs[i],water.infs[i],year.infs[i]] + eps.infs[year.infs[i],plot.infs[i]]
+  }
+
+    ## same idea as on lines 144-149, but now for infs (equation S6)
+      for(i in 1:N.plots.known.endo.inf){
+       link_year_pop_infs[i] <- ifelse(year_unk_adj[i] == 1, 2, 3)
+      expected_ep_inf[i] <- total_plants_infs[i] * prev[plot.inf.adj[i], link_year_pop_infs[i]]
+      diff_ep_inf[i] <- expected_ep_inf[i] - known_ep_inf[i]
+      diff_ep_inf_adj[i] <- ifelse(diff_ep_inf[i] <= 0, 0, diff_ep_inf[i])
+      prev_adj_inf_unbounded[i] <- diff_ep_inf_adj[i] / total_unknown_inf[i]
+      prev_adj_inf[i] <- ifelse(prev_adj_inf_unbounded[i] >= 1, 1, prev_adj_inf_unbounded[i]) ## make 1 the upper bound of prevalence (100% of plants should be E+)
+    }                     
+    
+
+## Equation S9 -- need to start the i in max(N.obs.inf)+1):N.infs.unk  (N.obs.inf = 460, so start at 461)
+  for(i in 317:N.obs.infs.unk){
+  eps.infs.overdisp[i] ~ dnorm(0,tau.infs.overdisp)
+  log(weighted.mean[i]) <- mu.infs[2, water_unk[i],year_unk[i]] * prev_adj_inf[plot_unk[i]] + 
+  mu.infs[1,water_unk[i],year_unk[i]] * (1-(prev_adj_inf[plot_unk[i]]))
+
+  log(lambda[i])<-weighted.mean[i]  + eps.seed[year_unk[i],plot_unk[i]] + eps.infs.overdisp[i]
+
+  infs.unk[i]~dpois(lambda[i])
+  }
+
+
+## Equations S10 and S11 --  Likelihood seed mass
+    for(i in 1:N.obs.seed){
+    mean.seed[i] <- mu.seed[endo.seed[i],water.seed[i],year.seed[i]] + eps.seed[year.seed[i],plot.seed[i]]
+    y.seed[i]~dnorm(mean.seed[i],tau.res.seed)
+  }
+
+
+   ## for flowering probability of individuals with known endo stat
+   for(i in 1:N.obs.flow.known){
+    logit(flow.p[i]) <- mu_flow[endo.flow.k[i], water.flow.k[i], year.flow.k[i]] + eps.flow[year.f[i], plot.f[i]]
+     flowering.k[i] ~ dbern(flow.p[i])
+   }
+
+  ## same idea as on lines 144-149, but now for flowering (equation S6)
+    for(i in 1:N.plots.known.endo.flow){
+      expected_ep_f[i] <- total.plants.3.sbplts.f[i] * prev[plot.adj.flow[i], year.adj.flow[i]]
+      diff_ep_f[i] <- expected_ep_f[i] - known_ep_f[i]
+      diff_ep_adj_f[i] <- ifelse(diff_ep_f[i] <= 0, 0, diff_ep_f[i]) ## if the difference of expected E+ plants is less than 0, make it 0
+      prev_adj_unbounded_f[i] <- diff_ep_adj_f[i] / total_unknown_flow[i] ## calculate the adjusted E+ prevalence
+      prev_adj_f[i] <- ifelse(prev_adj_unbounded_f[i] >= 1, 1, prev_adj_unbounded_f[i]) ## make 1 the upper bound of prevalence (100% of plants should be E+)
+    }
+   
+   for(i in 1:N.obs.flow.unknown){
+  logit(mu_flow_unk[i])<- weighted.flow.p[i] + eps.flow[year.f[i], plot.f[i]]
+  weighted.flow.p[i] <- mu_flow[2, water.f[i], year.f[i]] * prev_adj_f[plot.f[i]] +
+    mu_flow[1, water.f[i], year.f[i]] * (1-prev_adj_f[plot.f[i]]) 
+  flow.unk[i] ~ dbinom(mu_flow_unk[i], total.unk.plants.f[i])                  
+    } 
+
+
+## Equations S13 and S14 - likelihood for vertical transmission    
+  for(i in 1:N.obs.vt){
+    logit(mean.vtrans[i]) <- mu_vtrans[water.vt[i], year.vt[i]] + eps.vt[year.vt[i], plot.vt[i]]
+    ep.seeds[i]~dbetabin(mean.vtrans[i] * w, (1-mean.vtrans[i])*w, total.seeds[i]) 
+  }
+
+  ## Equations S20 and S21 --  Likelihood model for number of seeds and seed mass
+    for (i in 1:N.obs.seed.lin.reg){
+    mu.lin.reg[i] <- beta0_seed_linreg + slope_lin_reg*seed.count.linreg[i]
+    seed.mass.linreg[i] ~ dnorm(mu.lin.reg[i], tau.sigma.count)
+    }
+
+
+   
+   ## Recruiutment model 
+   for(i in 1:N.plots.surv.rec){
+    link_year_surv_rec[i] <- ifelse(year.surv.rec[i] == 1, 2, 3)
+
+    ## survival probabilities for recruitment estimate 
+    logit(prob.ep.surv[i]) <-  prev[surv.rec.plot[i], link_year_surv_rec[i]] * (mu_surv[2, water.surv.rec[i], year.surv.rec[i]] + eps.surv[year.surv.rec[i], surv.rec.plot[i]])
+    logit(prob.em.surv[i]) <- (1-prev[surv.rec.plot[i], link_year_surv_rec[i]]) * (mu_surv[1, water.surv.rec[i], year.surv.rec[i]] + eps.surv[year.surv.rec[i], surv.rec.plot[i]])
+    } 
+    
+
+    for(i in 1:N.plots.surv.rec){
+    ## flowering probabilities for recruitment estimate (can use the same indexing as for survival aspect of recruitment)
+    logit(prob.ep.f[i]) <-  prev[surv.rec.plot[i], year.surv.rec[i]] * (mu_flow[2, water.surv.rec[i], year.surv.rec[i]] + eps.flow[year.surv.rec[i], surv.rec.plot[i]])
+    logit(prob.em.f[i]) <- (1-prev[surv.rec.plot[i], year.surv.rec[i]]) * (mu_flow[1, water.surv.rec[i], year.surv.rec[i]] + eps.flow[year.surv.rec[i], surv.rec.plot[i]])
+    } 
+
+## Equations S16 and S17 -- likelihood for recruitment probabilty
+  for(i in 1:N.sbplts.avg.rec){
+  rec.sbplt[i] ~ dnegbin(p.rec[i], s)
+  p.rec[i] <- s/(s+rec.lambda[i])
+  log(rec.lambda[i]) <- mu_rec[water.r[i], year.r[i]] + eps.rec[year.r[i], plot.r[i]] 
+    }
+
+
+
+
+
+### Derived recruitment estimates
+for(i in 1:N.plots.surv.rec){
+
+  ## density of E+ plants per plot in year t+1
+    ep_rec_plt_t1[i] <- (p.rec[plots.rec_t1[i]]*prev[plots.rec_t1[i], year.rec_t1[i]])
+
+  ## density of E+ plants in year t
+    ep_rec_plt_t[i] <- (prob.ep.surv[plots.rec_t[i]]) * p.rec[plots.rec_t[i]]*(prev[plots.rec_t[i], year.rec_t[i]]) ## Solve for number of E+ recruits per PLOT 
+
+## Equation S18 -- density of E+ RECRUITS in year t+1
+ep_rec_plt[i] <- ep_rec_plt_t1[i] - ep_rec_plt_t[i]
+
+  ## density of flowering recruits in year t
+    ep_rec_flow_t[i] <- (p.rec[plots.rec_t[i]]*prev[plots.rec_t[i], year.rec_t[i]]) * prob.ep.f[plots.rec_t[i]]
+
+  ## density of seeds produced by E+ plants
+    ep_seeds_plt_t[i] <-  1/slope_lin_reg * (exp(mu.seed[2,water.rec_t[i],year.rec_t[i]] + eps.seed[year.rec_t[i],plots.rec_t[i]])) * (exp(mu.infs[2,water.rec_t[i],year.rec_t[i]] + eps.infs[year.rec_t[i],plots.rec_t[i]]))
+
+  ## density of E+ seeds produced by E+ plants (penalized by vtrans)
+    ep_seeds_plt_t_real[i] <- ep_seeds_plt_t[i] * mean.vtrans[plots.rec_t[i]]
+
+
+## Equation S22 --  density of E+ seeds produced by flowering plants in year t
+ep_seeds_rec[i] <- ep_rec_flow_t[i] * ep_seeds_plt_t_real[i]
+
+
+
+  ## density of E- plants per plot in year t+1
+    em_rec_plt_t1[i] <- (p.rec[plots.rec_t1[i]]*(1-prev[plots.rec_t1[i], year.rec_t1[i]]))
+
+  ## density of E- plants in year t
+    em_rec_plt_t[i] <- prob.em.surv[plots.rec_t[i]] * p.rec[plots.rec_t[i]]*(1-prev[plots.rec_t[i], year.rec_t[i]]) 
+
+## Equation S19 -- density of E- RECRUITS in year t+1
+  em_rec_plt[i] <- em_rec_plt_t1[i] - em_rec_plt_t[i]
+
+  ## density of E- flowering recruits in year t
+    em_rec_flow_t[i] <- (p.rec[plots.rec_t[i]]*(1-prev[plots.rec_t[i], year.rec_t[i]])) * prob.em.f[plots.rec_t[i]]
+
+  ## density of seeds produced by E- plants
+    em_seeds_plt_t[i] <-  1/slope_lin_reg * (exp(mu.seed[1,water.rec_t[i],year.rec_t[i]] + eps.seed[year.rec_t[i],plots.rec_t[i]])) * (exp(mu.infs[1,water.rec_t[i],year.rec_t[i]] + eps.infs[year.rec_t[i],plots.rec_t[i]]))
+
+  ## density of E- seeds produced by plants (E- and E+) in year t
+    em_seeds_plt_t_real[i] <- em_seeds_plt_t[i] + (ep_seeds_plt_t[i] * (1-mean.vtrans[plots.rec_t[i]]))
+
+
+## Equation S23 -- density of E- seeds produced by E- flowering plants in year t
+   em_seeds_rec[i] <- em_rec_flow_t[i] * em_seeds_plt_t_real[i]
+
+
+## Equation S15 -- recruitment probability for E+
+  new_prob_ep_rec[i] <-  ep_rec_plt[i]/ep_seeds_rec[i]
+
+## Equation S15 -- recruitment probability for E-
+  new_prob_em_rec[i] <- em_rec_plt[i]/ep_seeds_rec[i]
+}
+
+
+## derived recruitment probabilities for each type
+
+prob_ep_rec_new.ambient.14 <- mean(new_prob_ep_rec[1:23])
+prob_ep_rec_new.irrigated.14 <- mean(new_prob_ep_rec[24:47])
+
+prob_ep_rec_new.ambient.15 <- mean(new_prob_ep_rec[48:70])
+prob_ep_rec_new.irrigated.15 <- mean(new_prob_ep_rec[71:94])
+
+
+prob_em_rec_new.ambient.14 <- mean(new_prob_em_rec[1:23])
+prob_em_rec_new.irrigated.14 <- mean(new_prob_em_rec[24:47])
+
+prob_em_rec_new.ambient.15 <- mean(new_prob_em_rec[48:70])
+prob_em_rec_new.irrigated.15 <- mean(new_prob_em_rec[71:94])
+
+
+ 
+
+  for(i in 1:N.endo){
+       for(j in 1:N.water){
+            for(k in 1:N.year){
+
+                logit(survival.vital.rate[i,j,k]) <- (mu_surv[i,j,k]) ## survival for  vital rate
+                logit(flowering.vital.rate[i,j,k]) <- (mu_flow[i,j,k]) ## flowering vital rate
+                seedmass.per.cap[i,j,k] <- exp(mu.seed[i,j,k])*exp(mu.infs[i,j,k]) ## Equation S12 -- vital rate of reproduction: per capita seeds produced in grams               
+               
+            }
+        }
+    }
+
+  for(j in 1:N.water){
+      for(k in 1:N.year){
+    logit(vtrans[j,k]) <- (mu_vtrans[j,k])
+          }  
+        }
+
+
+  ## Population prevalence -- Computation of fit statistic (for Bayesian p-value)
+     for(i in 1:N.obs){
+     Presi[i] <- abs(y.pos[i] - prev[plot[i],year[i]]*N.samples[i])
+     y.new[i] ~ dbetabin(prev[plot[i],year[i]]*q, (1-prev[plot[i],year[i]])*q, N.samples[i])
+     Presi.new[i] <- abs(y.new[i] - prev[plot[i],year[i]]*N.samples[i])
+    }
+    
+    ## Population prevalence -- prediction
+    for(i in 1:N.x.levels){
+    for(j in 1:(N.years-1)){
+    logit(Eplus.add.pred[i,j])<-beta0.mean[2,j]+beta1.mean[2,j]*x.levels[i]
+    logit(Eplus.control.pred[i,j])<-beta0.mean[1,j]+beta1.mean[1,j]*x.levels[i]
+    }
+    }
+
+    ## Population prevalence -- Posterior predictive check
+    fit <- sum(Presi[]) # Discrepancy for actual data set
+    fit.new <- sum(Presi.new[]) # Discrepancy for replicate data set
+   
+
+  ## Vital rates -- Computation of fit statistics
+
+    for(i in 1:N.obs.surv.known){ ## survival known endophyte status
+    Presi.surv[i] <- abs(survival.k[i]-surv.p[i])
+    y.new.surv[i] ~ dbern(surv.p[i])
+    Presi.surv.new[i] <- abs(y.new.surv[i] - surv.p[i])
+    }   
+    
+    for(i in 1:N.plots.known.endo.surv){ ## survival unknown endophyte status
+    Presi.surv.unk[i] <- abs(alive.unk.t1[i]-mu_surv_unk[i]*alive.unk.t[i])
+    y.new.surv.unk[i] ~ dbinom(mu_surv_unk[i], alive.unk.t[i])
+    Presi.surv.unk.new[i] <- abs(y.new.surv.unk[i] - mu_surv_unk[i]*alive.unk.t[i])
+    }
+    
+    for(i in 1:N.obs.flow.known){ ## flowering known endophyte status
+    Presi.flow[i] <- abs(flowering.k[i]-flow.p[i])
+    y.new.flow[i] ~ dbern(flow.p[i])
+    Presi.flow.new[i] <- abs(y.new.flow[i] - flow.p[i])
+    }
+
+    for(i in 1:N.obs.infs){ ## infs known endophtye status
+    Presi.infs[i] <- (y.infs[i]-p.infs[i])/sqrt(p.infs[i])
+    y.new.infs[i] ~ dnegbin(p.infs[i], r)
+    Presi.infs.new[i] <- (y.new.infs[i]-p.infs[i])/sqrt(p.infs[i])
+
+    D.infs[i] <- pow(Presi.infs[i],2)
+    D.infs.new[i] <- pow(Presi.infs.new[i],2)
+    }
+
+    for(i in 461:N.obs.infs.unk){ ## infs unknown endophyte status
+    Presi_unk[i] <- (infs.unk[i]-lambda[i])/sqrt(lambda[i])
+    y.new.infs_unk[i] ~ dpois(lambda[i])
+    Presi.new_unk[i] <- (y.new.infs_unk[i]-lambda[i])/sqrt(lambda[i])
+
+    D_unk[i] <- pow(Presi_unk[i],2)
+    D_unk.new[i] <- pow(Presi.new_unk[i],2)
+   }
+
+    for(i in 1:N.obs.seed){ ## seed mass
+    sq.res.seed[i] <- pow(y.seed[i] - mean.seed[i],2)
+    y.seed.new[i] ~ dnorm(mean.seed[i], tau.res.seed)
+    sq.res.seed.new[i] <- pow(y.seed.new[i] - mean.seed[i], 2)
+    }
+    
+    for (i in 1:N.obs.seed.lin.reg){ ## seed count to seed mass conversion
+    sq.res.linreg[i] <- pow(seed.mass.linreg[i] - mu.lin.reg[i],2)
+    y.linreg.new[i] ~ dnorm(mu.lin.reg[i], tau.sigma.count)
+    sq.res.linreg.new[i] <- pow(y.linreg.new[i] - mu.lin.reg[i], 2)
+    }
+
+    for(i in 1:N.obs.vt){ ## vertical transmission
+    Presi.vtrans[i] <- abs(ep.seeds[i]-mean.vtrans[i]*total.seeds[i])
+    y.new.vtrans[i] ~ dbetabin(mean.vtrans[i]*w,(1-mean.vtrans[i])*w, total.seeds[i])
+    Presi.vtrans.new[i] <- abs(y.new.vtrans[i] - mean.vtrans[i]*total.seeds[i])
+    }
+
+    for(i in 1:N.sbplts.avg.rec){ ## recruitment
+    Presi.rec[i] <- (rec.sbplt[i]-p.rec[i])/sqrt(p.rec[i])
+    y.new.rec[i] ~ dnegbin(p.rec[i], s)
+    Presi.new.rec[i] <- (y.new.rec[i]-p.rec[i])/sqrt(p.rec[i])
+
+    D_rec[i] <- pow(Presi.rec[i],2)
+    D_rec.new[i] <- pow(Presi.new.rec[i],2)
+    }
+
+    ## sum up the residuals for the posterior predictive check
+
+    fit.surv <- sum(Presi.surv[]) 
+    fit.surv.new <- sum(Presi.surv.new[])  
+    
+    fit.surv.unk <- sum(Presi.surv.unk[]) 
+    fit.surv.unk.new <- sum(Presi.surv.unk.new[])
+
+    fit.flow <- sum(Presi.flow[]) 
+    fit.flow.new <- sum(Presi.flow.new[])   
+
+    fit.infs <- sum(D.infs[]) 
+    fit.infs.new <- sum(D.infs.new[])
+
+    fit.infs.unk <- sum(D_unk[461:N.obs.infs.unk]) 
+    fit.infs.unk.new <- sum(D_unk.new[461:N.obs.infs.unk])
+
+    fit.seed <- sum(sq.res.seed[]) 
+    fit.seed.new <- sum(sq.res.seed.new[])
+
+    fit.linreg <- sum(sq.res.linreg[]) 
+    fit.linreg.new <- sum(sq.res.linreg.new[])
+
+    fit.vtrans <- sum(Presi.vtrans[]) 
+    fit.vtrans.new <- sum(Presi.vtrans.new[])  
+
+    fit.rec <- sum(D_rec[]) 
+    fit.rec.new <- sum(D_rec.new[])
+     
+  ##end model
+  } 
