@@ -1,8 +1,11 @@
 ### Intermediate symbiont prevalence manuscript
 ### JAGS parameterization from R
+## pulls the data that are bundled in the "Intermediate_Prevalence_Data_Bundle_for_JAGS_Script.R"
 
 
 load("Data_for_JAGS_Model.RData")
+library(R2jags);load.module("mix")
+library(mcmcplots)
 
 
 ## list of data for JAGS model
@@ -11,7 +14,7 @@ jag.data<-list(N.trt=N.trt,
                N.plots=N.plots,
                N.obs=N.obs,
                water=water,
-               y.pos=y.pos,
+               y.pos=y.pos, ## population prevalence data
                N.samples=N.samples,
                plot=plot,
                year=year,
@@ -20,7 +23,6 @@ jag.data<-list(N.trt=N.trt,
                
                
                ### SURVIVAL DATA
-               
                N.endo = max(survival_known$endo),
                N.water = max(survival_known$water),
                N.year = max(survival_known$year), 
@@ -64,8 +66,8 @@ jag.data<-list(N.trt=N.trt,
                plot.infs = infs_dat$plot,
                y.infs = infs_dat$inf_number_t,
                
-               # ADJUST POP Prev by infs of known endo status
-               
+               ## ADJUST POP Prev by infs of known endo status
+
                N.plots.known.endo.inf = nrow(total_plants_infs),
                year_unk_adj = total_plants_infs$year_t,
                total_plants_infs = total_plants_infs$total_plants_flow,
@@ -112,7 +114,7 @@ jag.data<-list(N.trt=N.trt,
                seed.mass.linreg = (linreg_dat$seed_mass),
                
                
-               # ## recruitment 
+               ### recruitment 
                N.sbplts.avg.rec = nrow(rec_final),
                rec.sbplt = rec_final$total_plants_in_sbplt,
                water.r = rec_final$water,
@@ -184,89 +186,74 @@ inits<-function(){list(beta0.mean=matrix(rnorm(N.trt*(N.years-1),0,2),N.trt,(N.y
 }
 
 ## Params to estimate
-parameters<-c("beta0.mean","beta1.mean", ## Population prev params
-              "sigma0.plot","sigma1.plot","q",
-              "Eplus.add.pred","Eplus.control.pred",
-              "prev","fit","fit.new",
+parameters<-c(
+              # population prevalence
+              "Eplus.add.pred", ## elevated precipitation fitted relationship
+              "Eplus.control.pred", ## ambient precipitation fitted relationship
+              "prev", ## population prevalence estimate
               
-              ## SURVIVAL PARAMS
+              # vital rates
+              "survival.vital.rate", ## probabilty of survival vital rate
               
-              "mu_surv", "sigma.surv", "weighted.mean.surv",
-              "survival.vital.rate",
-              "fit.surv", "fit.surv.new",
+              "flowering.vital.rate", ## probability of flowering vital rate
               
-              ## FERTILITY AND RECRUITMENT
-              "mu.seed",
-              "mu.infs",
-              "prob.ep.f",
-              "prob.em.f",
-           
-              "fit.seed",
-              "fit.seed.new",
+              "seedmass.per.cap", ## per capita reproduction vital rate
+        
+              "prob_ep_rec_new.ambient.14", ## derived probability of E+ recruitment - ambient 2014-2015
+              "prob_ep_rec_new.ambient.15", ## derived probabilty of E+ recruitment - ambient 2015-2016
               
-              "fit.infs",
-              "fit.infs.new",
+              "prob_ep_rec_new.irrigated.14", ## derived probability of E+ recruitment - elevated 2014-2015
+              "prob_ep_rec_new.irrigated.15", ## derived probability of E+ recruitment - elevated 2015-2016
               
-              "fit.infs.unk",
-              "fit.infs.unk.new",
+              "prob_em_rec_new.ambient.14", ## derived probability of E- recruitment - ambient 2014-2015
+              "prob_em_rec_new.ambient.15", ## derived probability of E- recruitment - ambient 2015-2016
               
-              "fit.flow",
-              "fit.flow.new",
+              "prob_em_rec_new.irrigated.14", ## derived probability of E- recruitment - elevated 2014-2015
+              "prob_em_rec_new.irrigated.15", ## derived probability of E- recruitment - elevated 2015-2016
               
-              "fit.linreg",
-              "fit.linreg.new",
-           
-              "prob.ep.surv", 
-              "prob.em.surv", 
-              "ep_rec_plt",
-              "em_rec_plt",
-              "flowering.vital.rate",
-              "seedmass.per.cap",
-            
-              "fit.rec",
-              "fit.rec.new",
-            
-              #               ## VERTICAL TRANSMISSION
-              "vtrans",
+              "vtrans", ## probability of vertial transmission
               
-              "fit.vtrans",
-              "fit.vtrans.new",
-          
-              "p.rec",
-              "ep_rec_plt_t1",
-              "ep_rec_plt_t",
-              "ep_rec_flow_t",
-              "ep_seeds_plt_t",
-              
-              "ep_seeds_rec",
-              
-              "mu_vtrans",
-              "mean.vtrans",
-              
-              
-              
-            
-              "new_prob_ep_rec",
-              "prob_ep_rec_new.ambient.14",
-              "prob_ep_rec_new.ambient.15",
-              
-              "prob_ep_rec_new.irrigated.14",
-              "prob_ep_rec_new.irrigated.15",
-              
-              "prob_em_rec_new.ambient.14",
-              "prob_em_rec_new.ambient.15",
-              
-              "prob_em_rec_new.irrigated.14",
-              "prob_em_rec_new.irrigated.15",
-              
-              
-              #### random effects to check fequency dependence
+              ### random effects to check fequency dependence for survival, flowering, recruitment, seed mass, inflorescence production, and vertical transmission
               "eps.surv",
               "eps.flow",
               "eps.rec",
               "eps.seed",
               "eps.infs",
-              "eps.vt"
+              "eps.vt",
+              
+              ## posterior predictive checks
+              
+              # population prevalence
+              "fit",
+              "fit.new",
+              
+              # survival
+              "fit.surv", 
+              "fit.surv.new",
+              
+              # seed mass
+              "fit.seed",
+              "fit.seed.new",
+              
+              # inflorescence production 
+              "fit.infs",
+              "fit.infs.new",
+              
+              # flowering
+              "fit.flow",
+              "fit.flow.new",
+              
+              # seed mass (linear regression)
+              "fit.linreg",
+              "fit.linreg.new",
+              
+              # recruitment
+              "fit.rec",
+              "fit.rec.new",
+              
+              # vertical transmission
+              "fit.vtrans",
+              "fit.vtrans.new"
               
 )
 
@@ -278,7 +265,9 @@ nt<-20
 nc<-3
 
 ## run JAGS
-test<-jags(data=jag.data,inits=inits,parameters.to.save=parameters,
-           model.file="./vital_rate_scripts/Bayes models/JAGS_script.txt",
+results_bayes<-jags(data=jag.data,inits=inits,parameters.to.save=parameters,
+           model.file="./vital_rate_scripts/Bayes models/Intermediate_Prevalence_JAGS_script.txt",
            n.thin=nt,n.chains=nc,n.burnin=nb,
            n.iter=ni,working.directory=getwd())
+
+#save.image("Intermediate_Prev_JAGS_output_May30.RData") ## data object for figures
